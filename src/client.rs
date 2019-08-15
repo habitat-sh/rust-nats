@@ -30,9 +30,9 @@ const URI_SCHEME: &str = "nats";
 const RETRIES_MAX: u32 = 10;
 
 #[derive(Clone, Debug)]
-struct Credentials {
-    username: String,
-    password: String,
+enum Credentials {
+    AuthToken(String),
+    UsernamePassword { username: String, password: String },
 }
 
 #[derive(Clone, Debug)]
@@ -93,8 +93,7 @@ struct ConnectWithCredentials {
     verbose: bool,
     pedantic: bool,
     name: String,
-    user: String,
-    pass: String,
+    credentials: Credentials,
 }
 
 impl ConnectWithCredentials {
@@ -103,8 +102,15 @@ impl ConnectWithCredentials {
         map.insert("verbose".to_owned(), Value::Bool(self.verbose));
         map.insert("pedantic".to_owned(), Value::Bool(self.pedantic));
         map.insert("name".to_owned(), Value::String(self.name));
-        map.insert("user".to_owned(), Value::String(self.user));
-        map.insert("pass".to_owned(), Value::String(self.pass));
+        match self.credentials {
+            Credentials::AuthToken(auth_token) => {
+                map.insert("auth_token".to_owned(), Value::String(auth_token));
+            }
+            Credentials::UsernamePassword { username, password } => {
+                map.insert("user".to_owned(), Value::String(username));
+                map.insert("pass".to_owned(), Value::String(password));
+            }
+        }
         serde_json::to_string(&map)
     }
 }
@@ -144,13 +150,8 @@ impl Client {
                         "Username can't be empty",
                     )))
                 }
-                (_, None) => {
-                    return Err(NatsError::from((
-                        InvalidClientConfig,
-                        "Password can't be empty",
-                    )))
-                }
-                (username, Some(password)) => Some(Credentials {
+                (auth_token, None) => Some(Credentials::AuthToken(auth_token.to_owned())),
+                (username, Some(password)) => Some(Credentials::UsernamePassword {
                     username: username.to_owned(),
                     password: password.to_owned(),
                 }),
@@ -404,8 +405,7 @@ impl Client {
                     verbose: self.verbose,
                     pedantic: self.pedantic,
                     name: self.name.clone(),
-                    user: credentials.username.clone(),
-                    pass: credentials.password.clone(),
+                    credentials: credentials.clone(),
                 };
                 connect.into_json().or_else(|_| {
                     Err(NatsError::from(io::Error::new(
