@@ -11,6 +11,7 @@ use self::url::Url;
 use crate::errors::{ErrorKind::*, *};
 use crate::stream;
 use crate::tls_config::TlsConfig;
+use percent_encoding;
 use std::{
     cmp,
     collections::HashMap,
@@ -150,10 +151,10 @@ impl Client {
                         "Username can't be empty",
                     )))
                 }
-                (auth_token, None) => Some(Credentials::AuthToken(auth_token.to_owned())),
+                (auth_token, None) => Some(Credentials::AuthToken(percent_decode(auth_token))),
                 (username, Some(password)) => Some(Credentials::UsernamePassword {
-                    username: username.to_owned(),
-                    password: password.to_owned(),
+                    username: percent_decode(username),
+                    password: percent_decode(password),
                 }),
             };
             servers_info.push(ServerInfo {
@@ -794,6 +795,16 @@ fn wait_read_msg(
         inbox,
     };
     Ok(event)
+}
+
+// The nats connection string is parsed as a uri and percent encoded.
+// However, parts of the uri are used in contexts which do not accept
+// percent encoded strings (username, password, auth_token). Use this
+// to decode them.
+fn percent_decode(s: &str) -> String {
+    percent_encoding::percent_decode_str(s)
+        .decode_utf8_lossy()
+        .to_string()
 }
 
 fn default_tls_connector() -> Result<SslConnector, NatsError> {
