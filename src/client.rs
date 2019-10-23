@@ -1,16 +1,14 @@
-use openssl;
 use rand;
 
 use serde_json;
 use url;
 
-use self::openssl::ssl::{SslConnector, SslMethod};
 use self::rand::{distributions::Alphanumeric, seq::SliceRandom, thread_rng, Rng};
 use self::serde_json::{de, value::Value};
 use self::url::Url;
 use crate::errors::{ErrorKind::*, *};
 use crate::stream;
-use crate::tls_config::TlsConfig;
+use native_tls::TlsConnector;
 use percent_encoding;
 use std::{
     cmp,
@@ -58,7 +56,6 @@ struct ClientState {
     max_payload: usize,
 }
 
-#[derive(Debug)]
 pub struct Client {
     servers_info: Vec<ServerInfo>,
     server_idx: usize,
@@ -68,7 +65,7 @@ pub struct Client {
     state: Option<ClientState>,
     circuit_breaker: Option<Instant>,
     sid: u64,
-    tls_config: Option<TlsConfig>,
+    tls_config: Option<TlsConnector>,
     subscriptions: HashMap<u64, Subscription>,
 }
 
@@ -189,7 +186,7 @@ impl Client {
         self.name = name.to_owned();
     }
 
-    pub fn set_tls_config(&mut self, config: TlsConfig) {
+    pub fn set_tls_config(&mut self, config: TlsConnector) {
         self.tls_config = Some(config);
     }
 
@@ -375,13 +372,10 @@ impl Client {
             })?,
         };
         if server_info.tls_required {
-            let connector = self
-                .tls_config
-                .as_ref()
-                .map_or(default_tls_connector()?, |c| c.clone().into_connector());
+            let connector = self.tls_config.clone().unwrap_or(default_tls_connector()?);
             stream_writer = connector
                 .connect(&server_info.host, stream_writer.as_tcp()?)
-                .map(|conn| stream::Stream::Ssl(stream::SslStream::new(conn)))
+                .map(|conn| stream::Stream::Tls(stream::WrappedTlsStream::new(conn)))
                 .map_err(|e| {
                     NatsError::from((
                         TlsError,
@@ -807,8 +801,8 @@ fn percent_decode(s: &str) -> String {
         .to_string()
 }
 
-fn default_tls_connector() -> Result<SslConnector, NatsError> {
-    Ok(SslConnector::builder(SslMethod::tls())?.build())
+fn default_tls_connector() -> Result<TlsConnector, NatsError> {
+    Ok(TlsConnector::builder().build()?)
 }
 
 #[test]

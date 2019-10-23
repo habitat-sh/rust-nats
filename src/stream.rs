@@ -1,30 +1,28 @@
-use openssl;
-
-use self::openssl::ssl;
+use native_tls::TlsStream;
 use std::io;
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
 
-use self::Stream::{Ssl, Tcp};
+use self::Stream::{Tcp, Tls};
 
 #[derive(Debug)]
 pub enum Stream {
     Tcp(TcpStream),
-    Ssl(SslStream),
+    Tls(WrappedTlsStream),
 }
 
 impl Stream {
     pub fn try_clone(&self) -> io::Result<Stream> {
         match *self {
             Tcp(ref s) => Ok(Tcp(s.try_clone()?)),
-            Ssl(ref s) => Ok(Ssl(s.clone())),
+            Tls(ref s) => Ok(Tls(s.clone())),
         }
     }
 
     pub fn as_tcp(&self) -> io::Result<TcpStream> {
         match *self {
             Tcp(ref s) => s.try_clone(),
-            Ssl(ref s) => s.as_tcp(),
+            Tls(ref s) => s.as_tcp(),
         }
     }
 }
@@ -33,7 +31,7 @@ impl io::Read for Stream {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match *self {
             Tcp(ref mut s) => s.read(buf),
-            Ssl(ref mut s) => s.read(buf),
+            Tls(ref mut s) => s.read(buf),
         }
     }
 }
@@ -42,25 +40,25 @@ impl io::Write for Stream {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         match *self {
             Tcp(ref mut s) => s.write(buf),
-            Ssl(ref mut s) => s.write(buf),
+            Tls(ref mut s) => s.write(buf),
         }
     }
 
     fn flush(&mut self) -> io::Result<()> {
         match *self {
             Tcp(ref mut s) => s.flush(),
-            Ssl(ref mut s) => s.flush(),
+            Tls(ref mut s) => s.flush(),
         }
     }
 }
 
 // Clonable TLS Stream
 #[derive(Debug, Clone)]
-pub struct SslStream(Arc<Mutex<ssl::SslStream<TcpStream>>>);
+pub struct WrappedTlsStream(Arc<Mutex<TlsStream<TcpStream>>>);
 
-impl SslStream {
-    pub fn new(stream: ssl::SslStream<TcpStream>) -> SslStream {
-        SslStream(Arc::new(Mutex::new(stream)))
+impl WrappedTlsStream {
+    pub fn new(stream: TlsStream<TcpStream>) -> Self {
+        Self(Arc::new(Mutex::new(stream)))
     }
 
     pub fn as_tcp(&self) -> io::Result<TcpStream> {
@@ -68,13 +66,13 @@ impl SslStream {
     }
 }
 
-impl io::Read for SslStream {
+impl io::Read for WrappedTlsStream {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.0.lock().unwrap().read(buf)
     }
 }
 
-impl io::Write for SslStream {
+impl io::Write for WrappedTlsStream {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.0.lock().unwrap().write(buf)
     }

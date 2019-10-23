@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use openssl;
+use native_tls;
 use url;
 
 use std::error::Error;
@@ -108,8 +108,8 @@ impl From<io::Error> for NatsError {
     }
 }
 
-impl From<openssl::error::ErrorStack> for NatsError {
-    fn from(e: openssl::error::ErrorStack) -> NatsError {
+impl From<native_tls::Error> for NatsError {
+    fn from(e: native_tls::Error) -> NatsError {
         NatsError {
             repr: ErrorRepr::WithDescriptionAndDetail(
                 ErrorKind::TlsError,
